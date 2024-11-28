@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Airport Route Finder</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        #map { height: 600px; width: 100%; }
+        .container { position: absolute; z-index: 9999; top: 10px; left: 10px; background-color: white; padding: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <select id="start-airport"></select>
+    <select id="end-airport"></select>
+    <button onclick="findPath()">Find Path</button>
+    <p id="results"></p>
+    <p id="price-time"></p>
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+    let airportCoords = {};  // To store airport coordinates
+    let routes = [];         // To store flight routes
+
+    // Initialize the map
+    let map = L.map('map').setView([33.6407, -84.4277], 4);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    // Function to load data from the JSON file
+    async function loadData() {
+    try {
+        // Change the path to point to the 'data' folder
+        const response = await fetch('data/airports_data.json');
+        const data = await response.json();
+        
+        airportCoords = data.airports;  // Get airports data
+        routes = data.connections;      // Get routes data
+
+        // Populate airport options
+        populateAirports();
+        addMarkersToMap();
+    } catch (error) {
+        console.error('Error loading data:', error);
+    }
+}
+
+
+    // Function to add airport markers to the map
+    function addMarkersToMap() {
+        Object.keys(airportCoords).forEach(airport => {
+            L.marker(airportCoords[airport]).addTo(map).bindPopup(airport);
+        });
+    }
+
+    // Populate the dropdowns with airport codes
+    function populateAirports() {
+        const startSelect = document.getElementById("start-airport");
+        const endSelect = document.getElementById("end-airport");
+
+        Object.keys(airportCoords).forEach(airport => {
+            const optionStart = document.createElement("option");
+            const optionEnd = document.createElement("option");
+            optionStart.value = airport;
+            optionEnd.value = airport;
+            optionStart.textContent = airport;
+            optionEnd.textContent = airport;
+
+            startSelect.appendChild(optionStart);
+            endSelect.appendChild(optionEnd);
+        });
+    }
+
+    // Find the shortest path between two airports using BFS
+    function findShortestPath(start, end) {
+        const graph = {};
+        routes.forEach(([src, dest]) => {
+            if (!graph[src]) graph[src] = [];
+            if (!graph[dest]) graph[dest] = [];
+            graph[src].push(dest);
+            graph[dest].push(src);
+        });
+
+        const visited = new Set();
+        const queue = [[start]];
+
+        while (queue.length > 0) {
+            const path = queue.shift();
+            const node = path[path.length - 1];
+
+            if (node === end) return path;
+            if (!visited.has(node)) {
+                visited.add(node);
+                (graph[node] || []).forEach(neighbor => queue.push([...path, neighbor]));
+            }
+        }
+        return null; // No path found
+    }
+
+    // Function to calculate price and time based on distance
+    async function fetchRealTimeData(start, end) {
+        try {
+            const distance = Math.sqrt(
+                Math.pow(airportCoords[end][0] - airportCoords[start][0], 2) +
+                Math.pow(airportCoords[end][1] - airportCoords[start][1], 2)
+            );
+            const price = (150 + distance * 15).toFixed(2);
+            const time = (2 + distance * 0.1).toFixed(1);
+            return { price, time };
+        } catch (error) {
+            console.error("Error fetching real-time data:", error);
+            return { price: "N/A", time: "N/A" };
+        }
+    }
+
+    // Function to handle the Find Path button click
+    async function findPath() {
+        const startAirport = document.getElementById("start-airport").value;
+        const endAirport = document.getElementById("end-airport").value;
+
+        if (!startAirport || !endAirport || startAirport === endAirport) {
+            alert("Please select two different airports.");
+            return;
+        }
+
+        const path = findShortestPath(startAirport, endAirport);
+        if (!path) {
+            document.getElementById("results").textContent = "No path found.";
+            document.getElementById("price-time").textContent = "";
+            return;
+        }
+
+        const { price, time } = await fetchRealTimeData(startAirport, endAirport);
+
+        document.getElementById("results").textContent = `Path: ${path.join(" → ")}`;
+        document.getElementById("price-time").textContent = `Price: $${price} | Time: ${time} hours`;
+
+        if (window.polyline) {
+            map.removeLayer(window.polyline);
+        }
+        const pathCoords = path.map(airport => airportCoords[airport]);
+        window.polyline = L.polyline(pathCoords, { color: 'red' }).addTo(map);
+        map.fitBounds(window.polyline.getBounds());
+    }
+
+    window.onload = loadData; // Load data when the page loads
+</script>
+
+</body>
+</html>

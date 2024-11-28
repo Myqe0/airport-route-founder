@@ -37,7 +37,7 @@
     async function loadData() {
     try {
         // Change the path to point to the 'data' folder
-        const response = await fetch('data/airports_data.json');
+        const response = await fetch('airports_data.json');
         const data = await response.json();
         
         airportCoords = data.airports;  // Get airports data
